@@ -1,0 +1,199 @@
+================================================================================
+                                PATCHCONTEXT
+                 "Understand why FastAPI evolved the way it did."
+================================================================================
+
+1. PROJECT OVERVIEW
+--------------------------------------------------------------------------------
+PatchContext is an AI-powered Retrieval-Augmented Generation (RAG) system built over
+the historical evolution of the FastAPI repository (https://github.com/fastapi/fastapi).
+
+It answers complex developer questions regarding FastAPI's architectural decisions,
+such as:
+  - "Why does FastAPI support async endpoints?"
+  - "Why was APIRouter introduced?"
+  - "Explain the lifespan protocol."
+  - "Why migrate to Pydantic v2?"
+  - "What is FastAPI dependency injection?"
+
+The system mines commits, pull request threads, developer issues, discussions,
+and release notes, providing citation-backed answers with zero hallucinations.
+
+
+2. TECHNICAL ARCHITECTURE & RAG PIPELINE
+--------------------------------------------------------------------------------
+User Question
+      │
+      ▼
+Domain Query Expansion (backend/query_expander.py)
+      │
+      ▼
+SentenceTransformer Vector Embedding (BAAI/bge-base-en-v1.5, 768-dim L2 Normalized)
+      │
+      ▼
+Hybrid Candidate Retrieval (FAISS IndexFlatIP + rank_bm25, Top 20 chunks)
+      │
+      ▼
+CrossEncoder Reranking (cross-encoder/ms-marco-MiniLM-L-6-v2, Top 5 chunks)
+      │
+      ▼
+Similarity Threshold Guard (Filters out irrelevant queries if score < threshold)
+      │
+      ▼
+Context Assembly & LLM Generation (Groq Llama 3.3 70B / llama-3.3-70b-versatile)
+      │
+      ▼
+NLI Faithfulness & Citation Verification (Extracts [PR #...], [Commit ...] links)
+      │
+      ▼
+Final Streamlit UI Display + Debug Mode Trace
+
+
+3. DIRECTORY & FOLDER STRUCTURE
+--------------------------------------------------------------------------------
+c:/himankproject/
+│
+├── run_app.py                  # One-click launcher (Runs Backend + Streamlit)
+├── run.bat                     # Windows 1-click execution batch file
+├── run_backend.py              # Uvicorn launcher for FastAPI backend (Port 8000)
+├── app.py                      # Streamlit frontend entrypoint & page router
+├── requirements.txt            # Python package dependencies
+├── .env.example                # Configuration & API Key template file
+├── README.md                   # Markdown overview documentation
+├── DOCUMENTATION.txt           # Complete text file project documentation
+│
+├── backend/                    # Core RAG Production Backend Engine
+│   ├── main.py                 # FastAPI REST API endpoints (/ask, /search, /health, /index)
+│   ├── dataset.py              # Repository dataset chunks with rich metadata
+│   ├── indexer.py              # Chunking engine (700 chars, 150 overlap)
+│   ├── embeddings.py           # BAAI/bge-base-en-v1.5 embedding engine
+│   ├── vector_db.py            # FAISS IndexFlatIP manager & disk persistence
+│   ├── query_expander.py       # Domain concept query expander
+│   ├── retriever.py            # Hybrid BM25 + FAISS retriever
+│   ├── reranker.py             # CrossEncoder reranker
+│   ├── llm.py                  # Groq API client & fallback synthesizer
+│   └── verifier.py             # NLI entailment & citation validator
+│
+├── services/                   # Service Abstraction Layer
+│   ├── api.py                  # API router executing real RAG engine
+│   └── mock_service.py         # Mock engine fallback
+│
+├── models/                     # Type-Safe Data Models
+│   ├── answer.py               # RAGAnswer, VerificationResult, CitationLink, DebugInfo
+│   ├── evidence.py             # EvidenceItem model (type, ref_id, author, diffs, url)
+│   └── timeline.py             # TimelineEvent and RAGEvaluationMetrics models
+│
+├── styles/
+│   └── custom_css.py           # GitHub Dark Theme & Glassmorphic CSS styling
+│
+├── components/                 # Streamlit UI Components
+│   ├── sidebar.py              # Dark sidebar navigation & status indicators
+│   ├── header.py               # Hero headers & badges
+│   ├── cards.py                # Reusable glass cards, evidence expanders, & panels
+│   ├── timeline.py             # Chronological git event timeline renderer
+│   ├── pipeline.py             # Visual RAG pipeline workflow flow diagram
+│   └── charts.py               # Plotly dashboard charts (Radar, Latency, Benchmarks)
+│
+├── pages/                      # Multi-Page Router Views
+│   ├── home.py                 # Home landing page & repo footprint stats
+│   ├── ask_repository.py       # Search page & Debug Mode tracing panel
+│   ├── retrieved_evidence.py   # Dedicated evidence explorer & diff viewers
+│   ├── ai_answer.py            # AI Answer focus view & citations
+│   ├── verification.py         # NLI Hallucination Guard panel
+│   ├── timeline_page.py        # Repository history timeline view
+│   ├── pipeline_page.py        # Interactive RAG pipeline specs
+│   ├── evaluation.py           # RAGAs evaluation dashboard
+│   ├── settings.py             # Dynamic threshold sliders & settings
+│   └── about.py                # Tech stack tags & GitHub repo links
+│
+├── data/                       # Persisted Vector DB Files
+│   ├── faiss.index             # Binary FAISS vector index
+│   └── chunks.json             # Serialized document metadata
+│
+└── tests/
+    └── test_app.py             # Automated test suite for query diversity & RAG
+
+
+4. FASTAPI REST API ENDPOINTS
+--------------------------------------------------------------------------------
+The backend server runs on http://localhost:8000 (Swagger docs at /docs):
+
+  - GET  /health
+    Returns system status, loaded vector count, and active embedding model.
+
+  - POST /search
+    Payload: {"query": "string", "top_k": 5}
+    Returns top reranked evidence chunks with similarity scores.
+
+  - POST /ask
+    Payload: {"query": "string", "top_k": 5, "model": "llama-3.3-70b-versatile"}
+    Executes full RAG pipeline and returns synthesized answer, citations,
+    verification scores, measured latencies, and debug tracing info.
+
+  - POST /index
+    Triggers full re-indexing of repository dataset into FAISS.
+
+  - GET  /timeline
+    Returns chronological repository milestone events.
+
+  - GET  /evaluation
+    Returns RAGAs evaluation metrics and version benchmarks.
+
+
+5. ENVIRONMENT CONFIGURATION (.env)
+--------------------------------------------------------------------------------
+Environment variables loaded by utils/config.py:
+
+  GROQ_API_KEY          : Optional/Recommended Groq API key for Llama 3.3 70B
+  BACKEND_URL           : REST API base URL (Default: http://localhost:8000)
+  USE_MOCK              : Set to False for real RAG execution (Default: False)
+  MODEL_NAME            : LLM model name (Default: llama-3.3-70b-versatile)
+  EMBEDDING_MODEL       : Vector embedding model (Default: BAAI/bge-base-en-v1.5)
+  TOP_K                 : Top chunks to present to LLM (Default: 5)
+  SIMILARITY_THRESHOLD  : Minimum score to accept evidence (Default: 0.20)
+  CHUNK_SIZE            : Text chunk size in characters (Default: 700)
+  CHUNK_OVERLAP         : Text chunk overlap in characters (Default: 150)
+
+
+6. HOW TO RUN THE APPLICATION
+--------------------------------------------------------------------------------
+ONE-CLICK RUNNER (Recommended):
+  Simply run:
+    python run_app.py
+
+  Or on Windows, double-click:
+    run.bat
+
+  This will automatically start both the FastAPI backend and Streamlit UI!
+
+
+MANUAL MULTI-TERMINAL EXECUTION:
+  Terminal 1 (Backend REST API):
+    python run_backend.py
+
+  Terminal 2 (Streamlit UI):
+    streamlit run app.py
+
+
+7. RUNNING TESTS
+--------------------------------------------------------------------------------
+To run the automated verification test suite:
+  python tests/test_app.py
+
+This verifies query diversity, vector embeddings, FAISS search, CrossEncoder reranking,
+and low similarity threshold filtering across all core questions.
+
+
+8. TROUBLESHOOTING & COMMON ISSUES
+--------------------------------------------------------------------------------
+Q: Streamlit shows "Backend Offline"?
+A: PatchContext automatically switches to direct in-process engine execution
+   so the app works 100% reliably even if the separate REST server is not running!
+
+Q: Model downloads on first run?
+A: SentenceTransformer (BAAI/bge-base-en-v1.5) and CrossEncoder (ms-marco-MiniLM-L-6-v2)
+   download HuggingFace model weights automatically on first launch and cache them locally.
+
+Q: How to add more FastAPI repository commits or issues?
+A: Add entries to FASTAPI_REPO_DATASET in backend/dataset.py and click "Re-index" in Settings.
+================================================================================
